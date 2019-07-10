@@ -4,7 +4,19 @@ import argparse
 import os
 import requests
 
-load_dotenv()
+
+def get_args():
+    description_string = '''This script does two things:
+    a) shows amount of clicks if short link is given
+    b) shortens the link if full url is given'''
+
+    parser = argparse.ArgumentParser(
+        description=description_string,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument('link', help='Link to process')
+    args = parser.parse_args()
+    return args
 
 
 def is_bitlink(token, link):
@@ -13,11 +25,11 @@ def is_bitlink(token, link):
     headers = {
         'Authorization': f'Bearer {token}',
     }
-    r = requests.get(
+    response = requests.get(
         f'https://api-ssl.bitly.com/v4/bitlinks/{link}',
         headers=headers
     )
-    return r.ok
+    return response.ok
 
 
 def shorten_link(token, link):
@@ -27,14 +39,13 @@ def shorten_link(token, link):
     data = {
         'long_url': link,
     }
-    r = requests.post(
+    response = requests.post(
         'https://api-ssl.bitly.com/v4/bitlinks',
         headers=headers,
         json=data
     )
-    if r.ok:
-        return r.json()['link']
-    return None
+    response.raise_for_status()
+    return response.json()['link']
 
 
 def get_link_clicks(token, short_link):
@@ -47,41 +58,29 @@ def get_link_clicks(token, short_link):
         'unit': 'day',
         'units': -1,
     }
-    r = requests.get(
+    response = requests.get(
         f'https://api-ssl.bitly.com/v4/bitlinks/{short_link}/clicks',
         headers=headers,
         params=data
     )
-    if r.ok:
-        return sum(item['clicks'] for item in r.json()['link_clicks'])
-    return None
+    response.raise_for_status()
+    return sum(item['clicks'] for item in response.json()['link_clicks'])
 
 
 if __name__ == '__main__':
+    load_dotenv()
+
     user_token = os.getenv("TOKEN")
-
-    description_string = '''This script does two things:
-    a) show amount of clicks if short link is given
-    b) shorten the link if full url is given'''
-
-    parser = argparse.ArgumentParser(
-        description=description_string,
-        formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument('link', help='Link to process')
-    args = parser.parse_args()
+    args = get_args()
     user_link = args.link
 
-    link_is_bitlink = is_bitlink(user_token, user_link)
-
-    if link_is_bitlink:
-        result = get_link_clicks(user_token, user_link)
-    else:
-        result = shorten_link(user_token, user_link)
-
-    if result is None:
+    try:
+        link_is_bitlink = is_bitlink(user_token, user_link)
+        if link_is_bitlink:
+            link_clicks = get_link_clicks(user_token, user_link)
+            print(f'Number of clicks: {link_clicks}')
+        else:
+            short_link = shorten_link(user_token, user_link)
+            print(f'Short link: {short_link}')
+    except requests.exceptions.RequestException:
         print('Something went wrong :(')
-    elif link_is_bitlink:
-        print(f'Number of clicks: {result}')
-    else:
-        print(f'Short link: {result}')
